@@ -1,0 +1,35 @@
+syntax = "proto3";
+package protos;
+
+//protoc --go_out=plugins=grpc:. xx.proto
+message GetAccessTokenRequest {
+    string app_id = 1;
+    string secret = 2;
+}
+
+message FlushAccessTokenRequest {
+    string AccessToken =1;
+}
+
+message CheckAccessTokenRequest {
+    string AccessToken =1;
+    string AppId = 2;
+}
+
+message AccessTokenResponse {
+    string AccessToken =1;
+    string Expires=2;
+    int64 Errcode=3;
+    string Errmsg=4;
+}
+
+message CheckAccessTokenResponse {
+    string ResultCode=1;
+    string ResultMsg=2;
+}
+
+service AccessTokenRpc {
+    rpc GetAccessToken (GetAccessTokenRequest) returns (AccessTokenResponse);
+    rpc FlushAccessToken (FlushAccessTokenRequest) returns (AccessTokenResponse);
+    rpc CheckAccessToken (CheckAccessTokenRequest) returns (CheckAccessTokenResponse);
+}
