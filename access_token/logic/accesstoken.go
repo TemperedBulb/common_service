@@ -16,28 +16,26 @@ type AccessTokenLogic struct {
 	Db                     *gorm.DB
 	CenterApp              *model.CenterApp
 	CenterAppTokenLogModel *model.CenterAppToken
-	AppID                  string
-	Secret                 string
-	Token                  string
-	Expires                time.Time //到期时间
 }
 
 func NewAccessTokenLogic(db *gorm.DB, centerAppModel *model.CenterApp, CenterAppTokenLogModel *model.CenterAppToken) *AccessTokenLogic {
 	return &AccessTokenLogic{Db: db, CenterApp: centerAppModel, CenterAppTokenLogModel: CenterAppTokenLogModel}
 }
 
-var accessTokenList map[string]*AccessTokenLogic
+type accessTokenCache struct {
+	AppID   string    //应用id
+	Expires time.Time //到期时间
+}
+
+var accessTokenList map[string]*accessTokenCache
 
 func init() {
-	accessTokenList = make(map[string]*AccessTokenLogic)
+	accessTokenList = make(map[string]*accessTokenCache)
 }
 
 //GetAccessToken(context.Context, *GetAccessTokenRequest) (*AccessTokenResponse, error)
 func (l *AccessTokenLogic) GetAccessToken(_ context.Context, r *protos.GetAccessTokenRequest) (*protos.AccessTokenResponse, error) {
 	reply := new(protos.AccessTokenResponse)
-	//判断是否有token
-	//有则删除,无则生成
-
 	// 验证appID与secret
 	l.Db.Where("app_id", r.AppId).First(&l.CenterApp)
 	if l.CenterApp.AppId == "" {
@@ -48,6 +46,8 @@ func (l *AccessTokenLogic) GetAccessToken(_ context.Context, r *protos.GetAccess
 		reply.Errmsg = "app秘钥参数错误"
 		return reply, nil
 	}
+	//删除缓存中的accessToken
+	_ = unsetAccessTokenByAppID(r.AppId)
 	// 根据appid和secret生成accesstoken
 	encodeAesWord, expireTime := AesEncryptOfAccessToken(r.AppId, r.Secret)
 	// 调用model层入库
@@ -57,6 +57,8 @@ func (l *AccessTokenLogic) GetAccessToken(_ context.Context, r *protos.GetAccess
 	// 过期时间存为7500秒是为了防止应用有部分业务未处理完,延长5分钟过期(借鉴于微信)
 	l.CenterAppTokenLogModel.Expires = time.Now().Add((7500) * time.Second)
 	l.Db.Create(&l.CenterAppTokenLogModel)
+	// 设置accessToken到缓存
+
 	reply.AccessToken = encodeAesWord
 	reply.Expires = expireTime.String()
 	return reply, nil
@@ -100,6 +102,16 @@ func (l *AccessTokenLogic) FlushAccessToken(_ context.Context, r *protos.FlushAc
 	reply.AccessToken = r.AccessToken
 	reply.Expires = accessTokenList[r.AccessToken].Expires.String()
 	return reply, nil
+}
+
+//设置access_token
+func SetAccessToken(accessToken string, appId string, expires time.Time) error {
+	if nil != accessTokenList[accessToken] {
+		return errors.New("access_token 不可被重复设置")
+	}
+	_ = unsetAccessTokenByAppID(appId)
+	accessTokenList[accessToken] = &accessTokenCache{AppID: appId, Expires: expires}
+	return nil
 }
 
 //清理过期无效access_token减少内存开销
@@ -156,11 +168,9 @@ func AesEncryptOfAccessToken(appId, secret string) (encodeAesWordStr string, exp
 	key := []byte(secret)
 	encodeAesWord := util.AESEncrypt(origData, key)
 	expireTime = time.Time{}.Add(time.Duration(7200 * int64(time.Second)))
-	accessTokenList[string(encodeAesWord)] = &AccessTokenLogic{
+	accessTokenList[string(encodeAesWord)] = &accessTokenCache{
 		AppID:   appId,
-		Secret:  secret,
 		Expires: expireTime,
-		Token:   string(encodeAesWord),
 	}
 	return string(encodeAesWord), expireTime
 }
