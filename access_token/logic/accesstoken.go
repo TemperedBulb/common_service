@@ -1,24 +1,29 @@
 package logic
 
 import (
+	"common_service/access_token/model"
 	"common_service/access_token/protos"
 	"common_service/common/i18n"
 	"common_service/common/util"
 	"context"
 	"errors"
+	"github.com/jinzhu/gorm"
 	"github.com/sirupsen/logrus"
 	"time"
 )
 
 type AccessTokenLogic struct {
-	AppID   string
-	Secret  string
-	Token   string
-	Expires time.Time //到期时间
+	Db                     *gorm.DB
+	CenterApp              *model.CenterApp
+	CenterAppTokenLogModel *model.CenterAppToken
+	AppID                  string
+	Secret                 string
+	Token                  string
+	Expires                time.Time //到期时间
 }
 
-func NewAccessTokenLogic() *AccessTokenLogic {
-	return &AccessTokenLogic{}
+func NewAccessTokenLogic(db *gorm.DB, centerAppModel *model.CenterApp, CenterAppTokenLogModel *model.CenterAppToken) *AccessTokenLogic {
+	return &AccessTokenLogic{Db: db, CenterApp: centerAppModel, CenterAppTokenLogModel: CenterAppTokenLogModel}
 }
 
 var accessTokenList map[string]*AccessTokenLogic
@@ -28,15 +33,31 @@ func init() {
 }
 
 //GetAccessToken(context.Context, *GetAccessTokenRequest) (*AccessTokenResponse, error)
-//	FlushAccessToken(context.Context, *FlushAccessTokenRequest) (*AccessTokenResponse, error)
 func (l *AccessTokenLogic) GetAccessToken(_ context.Context, r *protos.GetAccessTokenRequest) (*protos.AccessTokenResponse, error) {
-	// 验证appID与secret TODO
-	// 调用model层入库 TODO
+	reply := new(protos.AccessTokenResponse)
+	//判断是否有token
+	//有则删除,无则生成
 
+	// 验证appID与secret
+	l.Db.Where("app_id", r.AppId).First(&l.CenterApp)
+	if l.CenterApp.AppId == "" {
+		reply.Errmsg = "不存在此应用"
+		return reply, nil
+	}
+	if l.CenterApp.Secret != r.Secret {
+		reply.Errmsg = "app秘钥参数错误"
+		return reply, nil
+	}
 	// 根据appid和secret生成accesstoken
 	encodeAesWord, expireTime := AesEncryptOfAccessToken(r.AppId, r.Secret)
-	reply := new(protos.AccessTokenResponse)
-	reply.AccessToken = string(encodeAesWord)
+	// 调用model层入库
+	l.CenterAppTokenLogModel.CenterAppId = r.AppId
+	l.CenterAppTokenLogModel.AccessToken = encodeAesWord
+	l.CenterAppTokenLogModel.CreatedAt = time.Now()
+	// 过期时间存为7500秒是为了防止应用有部分业务未处理完,延长5分钟过期(借鉴于微信)
+	l.CenterAppTokenLogModel.Expires = time.Now().Add((7500) * time.Second)
+	l.Db.Create(&l.CenterAppTokenLogModel)
+	reply.AccessToken = encodeAesWord
 	reply.Expires = expireTime.String()
 	return reply, nil
 }
@@ -68,6 +89,7 @@ func CheckAccessTokenByToken(appID string, accessToken string) error {
 }
 
 // 刷新accessToken
+//	FlushAccessToken(context.Context, *FlushAccessTokenRequest) (*AccessTokenResponse, error)
 func (l *AccessTokenLogic) FlushAccessToken(_ context.Context, r *protos.FlushAccessTokenRequest) (*protos.AccessTokenResponse, error) {
 	reply := new(protos.AccessTokenResponse)
 	if nil == accessTokenList[r.AccessToken] {

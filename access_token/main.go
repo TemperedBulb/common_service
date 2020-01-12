@@ -2,6 +2,7 @@ package main
 
 import (
 	"common_service/access_token/logic"
+	"common_service/access_token/model"
 	"common_service/access_token/protos"
 	"crypto/tls"
 	"crypto/x509"
@@ -51,19 +52,16 @@ func checkServerCred() credentials.TransportCredentials {
 }
 
 func main() {
-	// 验证ca证书
-	creds := checkCred()
-
-	// 从文件为服务器构造证书对象
-	//creds, err := credentials.NewServerTLSFromFile("common_service/secret/server.crt", "common_service/secret/server.key")
-	//if err != nil {
-	//	logrus.Fatal(err)
-	//}
-	db, err := gorm.Open("mysql", "user:password@/dbname?charset=utf8&parseTime=True&loc=Local")
+	db, err := gorm.Open("mysql", "jcc:jcc@/center?charset=utf8&parseTime=True&loc=Local")
 	defer db.Close()
 	// 构造一个gRPC服务对象.grpc.Creds()函数把证书包装成选项
-	grpcServer := grpc.NewServer(grpc.Creds(creds))
-	accessTokenLogic := logic.NewAccessTokenLogic()
+	// 验证ca证书
+	//creds := checkCred()
+	//grpcServer := grpc.NewServer(grpc.Creds(creds))
+	grpcServer := grpc.NewServer()
+	centerAppModel := new(model.CenterApp)
+	CenterAppTokenModel := new(model.CenterAppToken)
+	accessTokenLogic := logic.NewAccessTokenLogic(db, centerAppModel, CenterAppTokenModel)
 	//通过gRPC插件生成的RegisterAccessTokenRpcServer函数注册我们实现的AccessTokenLogic服务
 	protos.RegisterAccessTokenRpcServer(grpcServer, accessTokenLogic)
 	lis, err := net.Listen("tcp", PORT)
