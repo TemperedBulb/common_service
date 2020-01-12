@@ -5,6 +5,7 @@ import (
 	"common_service/access_token/protos"
 	"crypto/tls"
 	"crypto/x509"
+	"github.com/jinzhu/gorm"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -58,6 +59,8 @@ func main() {
 	//if err != nil {
 	//	logrus.Fatal(err)
 	//}
+	db, err := gorm.Open("mysql", "user:password@/dbname?charset=utf8&parseTime=True&loc=Local")
+	defer db.Close()
 	// 构造一个gRPC服务对象.grpc.Creds()函数把证书包装成选项
 	grpcServer := grpc.NewServer(grpc.Creds(creds))
 	accessTokenLogic := logic.NewAccessTokenLogic()
